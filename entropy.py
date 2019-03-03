@@ -2,16 +2,14 @@ import random
 import numpy as np
 
 
-def get_point(cent, rad, seed):
+def get_point(cent, rad):
     """
     A function to generate a random point in an n-ball.
     :param cent: Center of the ball.
     :param rad: Radius of the ball.
-    :param seed: Seed for the Mersene twister.
     :return: Random point.
     """
     n = len(cent)
-    random.seed(seed)
     a = []
     nrm = 0.
     r = random.uniform(0, rad)
@@ -19,7 +17,9 @@ def get_point(cent, rad, seed):
         a.append(random.gauss(0, 1))
         nrm = nrm + a[el]**2
 
-    nrm = r**(1./n)/np.sqrt(nrm)
+    if nrm is not 0.:
+        nrm = r**(1./n)/np.sqrt(nrm)
+
     for el in range(n):
         a[el] = a[el]*nrm + cent[el]
 
@@ -56,7 +56,7 @@ def uniformity_test(num_points, cent, rad, nseg):
     return counts
 
 
-def entropies(data, tree, center, alpha, radius, num_iter):
+def entropies(data, tree, alpha, radius, num_iter):
     """
     Calculates the entropies for given alpha and radii. The zeroth element of alpha is corresponding to H1
     and the first element to H_inf.
@@ -70,32 +70,40 @@ def entropies(data, tree, center, alpha, radius, num_iter):
     """
     m, _ = data.shape
     ml = np.log(m)
+    # Initialize an array with zeros
     entrop = np.zeros((len(alpha)+2, len(radius)), dtype=float)
-    denom = np.zeros((len(alpha)+2, len(radius)), dtype=int)
 
-    for rad in range(len(radius)):
-        for ind in range(num_iter):
-            point = get_point(data[center[ind], :], rad, ind)
+    for ind in range(num_iter):
+        for rad in range(len(radius)):
+            # Get a random point from an n-ball around a random point
+            point = get_point(data[random.randrange(0, m), :], rad)
+
+            # Get the number of nearest neighbours
             neigh = len(tree.query_ball_point(point, rad))+1
-            for alp in range(len(alpha)+2):
-                # Alpha = 1
-                if alp == 0:
-                    entrop[alp][rad] = (entrop[alp][rad]*denom[alp][rad]+np.log(neigh))/(denom[alp][rad]+1)
-                    denom[alp][rad] = denom[alp][rad] + 1
-                # Alpha = infinity
-                if alp == 1:
-                    entrop[alp][rad] = max(entrop[alp][rad], neigh)
-                # Other Alphas
-                if alp > 1:
-                    entrop[alp][rad] = (denom[alp][rad]*entrop[alp][rad]+neigh**(alpha[alp-2]-1.))/(denom[alp][rad]+1)
-                    denom[alp][rad] = denom[alp][rad] + 1
 
+            for alp in range(len(alpha)):
+                # Skip alpha = 1
+                if alpha[alp] == 1.:
+                    continue
+                # Calculate the degeneracy
+                entrop[alp+2][rad] += neigh**(alpha[alp]-1.)
+
+
+            # Alpha = Infinity saved at entrop[0][:]
+            entrop[0][rad] = max(entrop[0][rad], neigh)
+
+            # Alpha = 1 saved at entrop[1][:]
+            entrop[1][rad] = entrop[1][rad] + np.log(neigh)
+
+    # Rescale the degenerations to entropies
+    print(entrop)
+    for rad in range(len(radius)):
         for alp in range(len(alpha)+2):
-            if alp == 0:
-                entrop[alp, rad] = ml-entrop[alp, rad]
-            if alp == 1:
-                entrop[alp, rad] = ml - np.log(entrop[alp, rad])
+            if alp == 0.:
+                entrop[alp][rad] = ml - np.log(entrop[alp][rad])
+            elif alp == 1.:
+                entrop[alp][rad] = ml - entrop[alp][rad]/(m*num_iter)
             else:
-                entrop[alp, rad] = ml + np.log(entrop[alp, rad]/(1.-alpha[alp-2]))
+                entrop[alp][rad] = ml + np.log(entrop[alp][rad]/(m*num_iter))/(1.-alpha[alp-2])
 
     return entrop
